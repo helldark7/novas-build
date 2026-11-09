@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 #include <utility>
 #include <vector>
 
@@ -106,6 +107,20 @@ void AutoController::Update(InputCommon::InputSubsystem& input, Core::System& sy
             }
             for (const auto& [index, params] : motions) {
                 replacement.motions[index] = params.Serialize();
+            }
+            // NOVAS_BUTTON_LABELS=1 (NovaS: Ajustes > Botones del mando, "Según la letra"): the pad's
+            // A/B and X/Y act as the Switch buttons with the same letter (Xbox style). By default they
+            // go by position, like on the console (the right face button is A).
+            static const bool by_label = [] {
+                const char* value = std::getenv("NOVAS_BUTTON_LABELS");
+                return value != nullptr && value[0] == '1';
+            }();
+            if (by_label) {
+                LOG_INFO(Input, "NovaS player 1: buttons by label (A/B and X/Y swapped)");
+                std::swap(replacement.buttons[Settings::NativeButton::A],
+                          replacement.buttons[Settings::NativeButton::B]);
+                std::swap(replacement.buttons[Settings::NativeButton::X],
+                          replacement.buttons[Settings::NativeButton::Y]);
             }
             device_name = device.Get("display", "SDL controller");
             break;

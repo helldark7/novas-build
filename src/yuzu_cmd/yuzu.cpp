@@ -724,11 +724,40 @@ extern "C" SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     state->system.GPU().Start();
     state->system.GetCpuManager().OnGpuReady();
 
+    // NOVAS_LOADING_FILE (set by the NovaS launcher): while the disk shaders build, the window is
+    // hidden and the progress goes to that file as "<value> <total>", then "done". Building a big
+    // cache took up to 20 minutes on slower PCs behind a black screen; the launcher shows it now.
+    const char* loading_file = std::getenv("NOVAS_LOADING_FILE");
+    const auto write_loading = [loading_file](const std::string& text) {
+        if (loading_file == nullptr) {
+            return;
+        }
+        std::FILE* file = std::fopen(loading_file, "w");
+        if (file != nullptr) {
+            std::fputs(text.c_str(), file);
+            std::fclose(file);
+        }
+    };
     if (Settings::values.use_disk_shader_cache.GetValue()) {
+        if (loading_file != nullptr) {
+            state->emu_window->SetHiddenForLoading(true);
+        }
+        auto last_write = std::chrono::steady_clock::time_point{};
         state->system.Renderer().ReadRasterizer()->LoadDiskResources(
             state->system.GetApplicationProcessProgramID(), std::stop_token{},
-            [](VideoCore::LoadCallbackStage, size_t value, size_t total) {});
+            [&write_loading, &last_write](VideoCore::LoadCallbackStage stage, size_t value, size_t total) {
+                const auto now = std::chrono::steady_clock::now();
+                if (stage != VideoCore::LoadCallbackStage::Build || now - last_write < std::chrono::milliseconds(250)) {
+                    return;
+                }
+                last_write = now;
+                write_loading(fmt::format("{} {}", value, total));
+            });
+        if (loading_file != nullptr) {
+            state->emu_window->SetHiddenForLoading(false);
+        }
     }
+    write_loading("done");
 
     state->system.RegisterExitCallback([] { exit_requested.store(true, std::memory_order_relaxed); });
 

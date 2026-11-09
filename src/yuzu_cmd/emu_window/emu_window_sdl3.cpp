@@ -237,6 +237,15 @@ void EmuWindow_SDL3::Fullscreen() {
     }
 }
 
+void EmuWindow_SDL3::SetHiddenForLoading(bool hidden) {
+    if (hidden) {
+        SDL_HideWindow(render_window);
+    } else {
+        SDL_ShowWindow(render_window);
+        SDL_RaiseWindow(render_window);
+    }
+}
+
 void EmuWindow_SDL3::ToggleFullscreen() {
     const auto flags = SDL_GetWindowFlags(render_window);
     if (flags & SDL_WINDOW_FULLSCREEN) {

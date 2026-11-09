@@ -97,6 +97,13 @@ protected:
 
     /// Called when user passes the fullscreen parameter flag
     void Fullscreen();
+
+public:
+    /// NovaS: hides the window while the disk shaders build (its launcher shows the progress
+    /// meanwhile instead of a black screen), and shows it again on top afterwards.
+    void SetHiddenForLoading(bool hidden);
+
+protected:
     void ToggleFullscreen();
 
     struct ExitChord {
