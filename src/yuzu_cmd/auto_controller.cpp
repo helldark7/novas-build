@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -45,6 +47,67 @@ bool HasConnectedController(const Settings::PlayerInput& player,
     const bool available = std::ranges::all_of(player.buttons, connected) &&
                            std::ranges::all_of(player.analogs, connected);
     return found_controller && available;
+}
+
+// NOVAS_BUTTON_MAP (NovaS: Ajustes > Configurar mando): "A=south;B=east;ZR=rt;..." says which button of the
+// player's pad does each Switch button. Pad buttons are named by position on an Xbox-style pad (south is the
+// bottom face button); each one's binding is the one the default mapping gives the Switch button at that place.
+std::optional<Settings::NativeButton::Values> SwitchButton(std::string_view name) {
+    using namespace Settings::NativeButton;
+    static constexpr std::pair<std::string_view, Values> names[]{
+        {"A", A},         {"B", B},         {"X", X},           {"Y", Y},         {"L", L},
+        {"R", R},         {"ZL", ZL},       {"ZR", ZR},         {"Plus", Plus},   {"Minus", Minus},
+        {"LStick", LStick}, {"RStick", RStick}, {"DUp", DUp},   {"DDown", DDown}, {"DLeft", DLeft},
+        {"DRight", DRight},
+    };
+    for (const auto& [key, value] : names) {
+        if (key == name) {
+            return value;
+        }
+    }
+    return std::nullopt;
+}
+
+// The Switch button the default mapping puts on each pad button (the defaults go by position).
+std::optional<Settings::NativeButton::Values> DefaultOnPadButton(std::string_view name) {
+    using namespace Settings::NativeButton;
+    static constexpr std::pair<std::string_view, Values> pad[]{
+        {"east", A},       {"south", B},       {"north", X},   {"west", Y},       {"lb", L},
+        {"rb", R},         {"lt", ZL},         {"rt", ZR},     {"start", Plus},   {"back", Minus},
+        {"ls", LStick},    {"rs", RStick},     {"up", DUp},    {"down", DDown},   {"left", DLeft},
+        {"right", DRight},
+    };
+    for (const auto& [key, value] : pad) {
+        if (key == name) {
+            return value;
+        }
+    }
+    return std::nullopt;
+}
+
+// (Switch button, Switch button whose default binding it takes), from NOVAS_BUTTON_MAP.
+std::vector<std::pair<Settings::NativeButton::Values, Settings::NativeButton::Values>> CustomButtons() {
+    std::vector<std::pair<Settings::NativeButton::Values, Settings::NativeButton::Values>> result;
+    const char* value = std::getenv("NOVAS_BUTTON_MAP");
+    if (value == nullptr) {
+        return result;
+    }
+    std::string_view rest{value};
+    while (!rest.empty()) {
+        const auto end = rest.find(';');
+        const auto item = rest.substr(0, end);
+        rest = end == std::string_view::npos ? std::string_view{} : rest.substr(end + 1);
+        const auto equals = item.find('=');
+        if (equals == std::string_view::npos) {
+            continue;
+        }
+        const auto target = SwitchButton(item.substr(0, equals));
+        const auto source = DefaultOnPadButton(item.substr(equals + 1));
+        if (target && source) {
+            result.emplace_back(*target, *source);
+        }
+    }
+    return result;
 }
 
 bool SameBindings(const Settings::PlayerInput& lhs, const Settings::PlayerInput& rhs) {
@@ -115,7 +178,14 @@ void AutoController::Update(InputCommon::InputSubsystem& input, Core::System& sy
                 const char* value = std::getenv("NOVAS_BUTTON_LABELS");
                 return value != nullptr && value[0] == '1';
             }();
-            if (by_label) {
+            static const auto custom = CustomButtons();
+            if (!custom.empty()) {
+                const auto defaults = replacement.buttons;
+                for (const auto& [target, source] : custom) {
+                    replacement.buttons[target] = defaults[source];
+                }
+                LOG_INFO(Input, "NovaS player 1: {} buttons set in Configurar mando", custom.size());
+            } else if (by_label) {
                 LOG_INFO(Input, "NovaS player 1: buttons by label (A/B and X/Y swapped)");
                 std::swap(replacement.buttons[Settings::NativeButton::A],
                           replacement.buttons[Settings::NativeButton::B]);
