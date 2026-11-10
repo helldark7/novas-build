@@ -1,0 +1,75 @@
+name: Build NovaS
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  windows-msvc:
+    name: Windows (MSVC x64)
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install extra tools (Ninja & Cygwin)
+        run: |
+          choco install ninja cygwin -y --no-progress
+
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          ./tools/windows/install-vulkan-sdk.ps1
+
+      - name: Configure Cygwin with autoconf (for libusb)
+        run: |
+          C:\tools\cygwin\cygwinsetup.exe -q -P autoconf,automake,libtool,make,pkg-config
+          mkdir C:\cygwin-wrappers
+          echo @echo off > C:\cygwin-wrappers\autoconf.bat
+          echo C:\tools\cygwin\bin\bash.exe -l -c "autoconf %%*" >> C:\cygwin-wrappers\autoconf.bat
+          echo @echo off > C:\cygwin-wrappers\automake.bat
+          echo C:\tools\cygwin\bin\bash.exe -l -c "automake %%*" >> C:\cygwin-wrappers\automake.bat
+          echo C:\cygwin-wrappers>>"%GITHUB_PATH%"
+          echo C:\tools\cygwin\bin>>"%GITHUB_PATH%"
+
+      - name: CMake Configure
+        run: |
+          cmake -S . -B build -G Ninja ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DYUZU_USE_BUNDLED_QT=ON ^
+            -DYUZU_TESTS=OFF ^
+            -DENABLE_QT_TRANSLATION=OFF ^
+            -DUSE_DISCORD_PRESENCE=OFF
+
+      - name: Compile (Ninja)
+        run: |
+          cmake --build build --config Release --parallel
+
+      - name: Prepare Artifacts
+        shell: pwsh
+        run: |
+          mkdir -p artifacts
+          Copy-Item -Path "build/bin/*" -Destination "artifacts" -Recurse -Force
+          Copy-Item -Path "README.md" -Destination "artifacts" -Force
+          Copy-Item -Path "LICENSE.txt" -Destination "artifacts" -Force
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NovaS-Windows-x64
+          path: artifacts/
+          retention-days: 14
